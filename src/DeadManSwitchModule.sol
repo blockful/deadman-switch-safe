@@ -37,6 +37,8 @@ contract DeadManSwitchModule {
     error TakeoverFailed(bytes callData);
     error AlreadyInitialized();
     error Paused();
+    error NoOwners();
+    error HeirIsAlreadyOwner();
 
     // ----------------------------
     // Events
@@ -167,9 +169,12 @@ contract DeadManSwitchModule {
         uint256 ra = readyAt();
         if (block.timestamp < ra) revert NotReady(block.timestamp, ra);
 
-        // Step 0: read current owners
+        // Step 0: read current owners and verify heir is not already one
         address[] memory owners = safe.getOwners();
-        require(owners.length >= 1, "No owners?");
+        if (owners.length < 1) revert NoOwners();
+        for (uint256 i = 0; i < owners.length; i++) {
+            if (owners[i] == heir) revert HeirIsAlreadyOwner();
+        }
 
         // Step 1: swap first owner -> heir (heir becomes head)
         // Safe.swapOwner(prevOwner, oldOwner, newOwner)

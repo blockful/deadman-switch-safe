@@ -543,6 +543,19 @@ contract DeadManSwitchExtraTests is Test {
         module.triggerTakeover();
     }
 
+    function test_Takeover_HeirIsAlreadyOwnerReverts() public {
+        // Set heir to an existing owner
+        safe.execAsSafe(address(module), abi.encodeWithSignature("setHeir(address)", owner1));
+
+        // Warp past delay
+        vm.warp(block.timestamp + DELAY + 1);
+
+        // Takeover should fail because heir is already an owner
+        vm.prank(owner1);
+        vm.expectRevert(DeadManSwitchModule.HeirIsAlreadyOwner.selector);
+        module.triggerTakeover();
+    }
+
     function test_Takeover_SingleOwner() public {
         // This tests the case where Safe has only 1 owner
         // Warp past delay
