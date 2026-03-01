@@ -12,6 +12,7 @@ jobs:
   check:
     name: Foundry project
     runs-on: ubuntu-latest
+    environment: test
     env:
       RPC_URL: ${{ secrets.RPC_URL }}
     steps:
