@@ -1,88 +1,66 @@
-# Dead Man's Switch Safe
+# Dead Man's Switch for Safe
 
-A Gnosis Safe module + guard that transfers Safe ownership to a designated heir after a period of inactivity. Deployable as cheap ERC-1167 minimal proxy clones.
-
-## How it works
+Designate an heir for your [Safe](https://safe.global). If no transactions are executed within a configurable delay, the heir can claim full ownership.
 
 ```
-                          Safe (execTransaction)
-                                 |
-                                 v
-                           DeadManSwitch
-                      (checkAfterExecution → resets timer)
-
-    ... delay passes with no activity ...
-
-                           Heir calls
-                        triggerTakeover()
-                                 |
-                                 v
-                    DeadManSwitch uses Safe's
-                   execTransactionFromModule to:
-                     1. Remove all other owners
-                     2. Set threshold to 1
-                     3. Heir becomes sole owner
+  Safe owners sign transactions as usual
+                    |
+                    v
+       +------------------------+
+       |     DeadManSwitch      |
+       |  (module + guard)      |
+       +------------------------+
+       |  checkAfterExecution() |-----> resets inactivity timer
+       +------------------------+
+                    |
+                    | delay passes with no activity
+                    v
+       +------------------------+
+       |  heir: triggerTakeover |
+       +------------------------+
+                    |
+                    v
+       Safe now has 1 owner: heir
+       (threshold = 1, module paused)
 ```
 
-**DeadManSwitch** is a single contract that serves as both a Safe module and a Safe guard. After every `execTransaction`, its `checkAfterExecution` hook resets the inactivity timer. When the delay expires, the heir can call `triggerTakeover()` to become the sole owner.
+## Architecture
 
-**DeadManSwitchFactory** deploys ERC-1167 minimal proxy clones (~45 bytes each) via CREATE2, making per-Safe deployment cheap and deterministic.
+A single contract acts as both a Safe **module** and **guard**:
 
-## Security model
+- **Guard** -- `checkAfterExecution` resets the timer on every Safe transaction
+- **Module** -- `triggerTakeover` uses `execTransactionFromModule` to swap owners
 
-- **Guard access control**: only the Safe itself triggers activity recording (prevents third parties from resetting the timer)
-- **Heir-is-owner support**: if the heir is already one of the Safe's owners, takeover removes the other owners instead of reverting
-- **Auto-pause**: module pauses permanently after takeover to prevent reuse
-- **Guard resilience**: `checkAfterExecution` silently ignores non-Safe callers and never reverts
+Deployed as **ERC-1167 minimal proxies** via `DeadManSwitchFactory` for cheap per-Safe clones.
 
-### Limitations
+## Setup
 
-- `execTransactionFromModule` (calls from other modules) **bypass the guard**. If other modules are enabled, their activity won't reset the timer unless they explicitly call `ping()`
-- The module is powerful by design — it can change owners. Treat it as a time-locked root key
-- No upgrade mechanism. If a bug is found, owners must disable the module and deploy a new one
-- Block timestamp manipulation exists (~12s on Ethereum) but is negligible for delays measured in days
+After deploying a clone through the factory, execute **2 Safe transactions**:
 
-## Deployment
-
-### 1. Deploy factory (one-time per network)
-
-```bash
-forge script script/DeadManSwitch.s.sol:DeployFactory \
-  --rpc-url $RPC_URL \
-  --private-key $PRIVATE_KEY \
-  --broadcast
 ```
-
-### 2. Create clone for a Safe
-
-```bash
-FACTORY_ADDRESS=0x... \
-SAFE_ADDRESS=0x... \
-HEIR_ADDRESS=0x... \
-DELAY_SECONDS=2592000 \
-forge script script/DeadManSwitch.s.sol:DeployDeadManSwitch \
-  --rpc-url $RPC_URL \
-  --private-key $PRIVATE_KEY \
-  --broadcast
+safe.enableModule(dms)
+safe.setGuard(dms)
 ```
-
-### 3. Wire up (2 Safe transactions)
-
-After deployment, execute these Safe transactions (requires owner signatures):
-
-1. Enable as module: `safe.enableModule(dms)`
-2. Set as guard: `safe.setGuard(dms)`
 
 ## Build & Test
 
 ```bash
 forge build
-forge test -v                                           # unit tests
-forge test --fork-url $RPC_URL -v                       # includes fork tests
-forge fmt                                               # format
-forge snapshot                                          # gas snapshot
+forge test -vvv
+forge test -vvv --fork-url $RPC_URL   # fork tests against mainnet Safe
+```
+
+## Deployment
+
+```bash
+# 1. Deploy factory (once per network)
+forge script script/DeployFactory.s.sol --rpc-url $RPC_URL --private-key $PRIVATE_KEY --broadcast
+
+# 2. Create clone for your Safe
+FACTORY_ADDRESS=0x... SAFE_ADDRESS=0x... HEIR_ADDRESS=0x... DELAY_SECONDS=2592000 \
+  forge script script/DeployDeadManSwitch.s.sol --rpc-url $RPC_URL --private-key $PRIVATE_KEY --broadcast
 ```
 
 ## License
 
-LGPL-3.0-only
+MIT

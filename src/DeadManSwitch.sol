@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
 /// Minimal interface for Safe methods we use.
