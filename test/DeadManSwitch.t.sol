@@ -393,6 +393,57 @@ contract DeadManSwitchModuleTest is Test {
         assertTrue(true, "guard should not revert");
     }
 
+    // ============================================
+    // Test 8: heir is an existing owner — takeover should still work
+    // ============================================
+
+    function test_Takeover_HeirIsMiddleOwner() public {
+        // Scenario: 2/3 multisig, heir is owner2.
+        // owner1 and owner3 lose keys. owner2 (heir) can't reach threshold.
+        // After delay, heir should be able to take over — NOT get stuck.
+        safe.execAsSafe(address(module), abi.encodeWithSignature("setHeir(address)", owner2));
+
+        vm.warp(block.timestamp + DELAY + 1);
+
+        vm.prank(owner2);
+        module.triggerTakeover();
+
+        address[] memory owners = safe.getOwners();
+        assertEq(owners.length, 1, "should have exactly 1 owner");
+        assertEq(owners[0], owner2, "heir (owner2) should be sole owner");
+        assertEq(safe.getThreshold(), 1, "threshold should be 1");
+    }
+
+    function test_Takeover_HeirIsFirstOwner() public {
+        // Heir is owners[0] (head of linked list)
+        safe.execAsSafe(address(module), abi.encodeWithSignature("setHeir(address)", owner1));
+
+        vm.warp(block.timestamp + DELAY + 1);
+
+        vm.prank(owner1);
+        module.triggerTakeover();
+
+        address[] memory owners = safe.getOwners();
+        assertEq(owners.length, 1, "should have exactly 1 owner");
+        assertEq(owners[0], owner1, "heir (owner1) should be sole owner");
+        assertEq(safe.getThreshold(), 1, "threshold should be 1");
+    }
+
+    function test_Takeover_HeirIsLastOwner() public {
+        // Heir is owners[2] (tail of linked list)
+        safe.execAsSafe(address(module), abi.encodeWithSignature("setHeir(address)", owner3));
+
+        vm.warp(block.timestamp + DELAY + 1);
+
+        vm.prank(owner3);
+        module.triggerTakeover();
+
+        address[] memory owners = safe.getOwners();
+        assertEq(owners.length, 1, "should have exactly 1 owner");
+        assertEq(owners[0], owner3, "heir (owner3) should be sole owner");
+        assertEq(safe.getThreshold(), 1, "threshold should be 1");
+    }
+
     function test_GuardIgnoresNonSafeCaller() public {
         uint256 activityBefore = module.lastActivity();
         vm.warp(block.timestamp + 1 hours);
