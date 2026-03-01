@@ -454,6 +454,11 @@ contract DeadManSwitchExtraTests is Test {
         new DeadManSwitchModule(ISafe(address(safe)), heir, 0);
     }
 
+    function test_Constructor_InvalidDelay_TooLarge() public {
+        vm.expectRevert(DeadManSwitchModule.InvalidDelay.selector);
+        new DeadManSwitchModule(ISafe(address(safe)), heir, 366 days);
+    }
+
     // ============================================
     // Access control tests
     // ============================================
@@ -500,6 +505,12 @@ contract DeadManSwitchExtraTests is Test {
         // Safe cannot set zero delay
         (bool success,) = safe.execAsSafe(address(module), abi.encodeWithSignature("setDelay(uint256)", 0));
         assertFalse(success, "should fail for zero delay");
+    }
+
+    function test_SetDelay_TooLarge() public {
+        // Safe cannot set delay > MAX_DELAY
+        (bool success,) = safe.execAsSafe(address(module), abi.encodeWithSignature("setDelay(uint256)", 366 days));
+        assertFalse(success, "should fail for delay > MAX_DELAY");
     }
 
     function test_SetPaused_OnlyBySafe() public {

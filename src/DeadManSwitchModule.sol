@@ -54,6 +54,7 @@ contract DeadManSwitchModule {
     // Constants
     // ----------------------------
     address internal constant SENTINEL_OWNERS = address(0x1);
+    uint256 public constant MAX_DELAY = 365 days;
 
     // ----------------------------
     // Immutable / storage
@@ -75,7 +76,7 @@ contract DeadManSwitchModule {
         safe = _safe;
 
         if (_heir == address(0) || _heir == SENTINEL_OWNERS) revert InvalidHeir();
-        if (_delaySeconds == 0) revert InvalidDelay();
+        if (_delaySeconds == 0 || _delaySeconds > MAX_DELAY) revert InvalidDelay();
 
         heir = _heir;
         delay = _delaySeconds;
@@ -117,7 +118,7 @@ contract DeadManSwitchModule {
     }
 
     function setDelay(uint256 newDelaySeconds) external onlySafe {
-        if (newDelaySeconds == 0) revert InvalidDelay();
+        if (newDelaySeconds == 0 || newDelaySeconds > MAX_DELAY) revert InvalidDelay();
         uint256 old = delay;
         delay = newDelaySeconds;
         emit DelayChanged(old, newDelaySeconds);
