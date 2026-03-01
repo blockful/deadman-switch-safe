@@ -221,6 +221,9 @@ contract DeadManSwitchModule {
             )
         );
 
+        // Step 4: permanently pause to prevent reuse
+        paused = true;
+
         emit TakeoverTriggered(heir, block.timestamp);
     }
 

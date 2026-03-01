@@ -594,6 +594,20 @@ contract DeadManSwitchExtraTests is Test {
         assertEq(safe.getThreshold(), 1, "threshold should be 1");
     }
 
+    function test_Takeover_PausesModuleAfterwards() public {
+        // Warp past delay
+        vm.warp(block.timestamp + DELAY + 1);
+
+        assertFalse(module.paused(), "should not be paused before takeover");
+
+        // Heir triggers takeover
+        vm.prank(heir);
+        module.triggerTakeover();
+
+        // Module should be paused after takeover
+        assertTrue(module.paused(), "module should be paused after takeover");
+    }
+
     // ============================================
     // View function tests
     // ============================================
