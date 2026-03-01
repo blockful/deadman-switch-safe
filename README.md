@@ -1,14 +1,15 @@
 # Dead Man's Switch for Safe
 
-Designate an heir for your [Safe](https://safe.global). If no transactions are executed within a configurable delay, the heir can claim full ownership.
+Designate an heir for your [Safe](https://safe.global). If the Safe owners stop signing transactions for a configurable period, the heir can claim full ownership.
 
 ```
   Safe owners sign transactions as usual
+        (proof of life / check-in)
                     |
                     v
        +------------------------+
        |     DeadManSwitch      |
-       |  (module + guard)      |
+       |    (module + guard)    |
        +------------------------+
        |  checkAfterExecution() |-----> resets inactivity timer
        +------------------------+
@@ -24,14 +25,15 @@ Designate an heir for your [Safe](https://safe.global). If no transactions are e
        (threshold = 1, module paused)
 ```
 
-## Architecture
+## How It Works
 
 A single contract acts as both a Safe **module** and **guard**:
 
-- **Guard** -- `checkAfterExecution` resets the timer on every Safe transaction
-- **Module** -- `triggerTakeover` uses `execTransactionFromModule` to swap owners
+- **Guard** -- `checkAfterExecution` resets the timer after every `execTransaction` call. Only direct Safe transactions reset the timer -- calls from other modules (`execTransactionFromModule`) bypass the guard and do **not** count as activity.
+- **Module** -- `triggerTakeover` uses `execTransactionFromModule` to remove all existing owners and make the heir the sole owner.
+- **Manual check-in** -- Safe owners can call `ping()` via a Safe transaction to reset the timer without performing any other action. Useful if other modules are enabled whose activity won't be detected by the guard.
 
-Deployed as **ERC-1167 minimal proxies** via `DeadManSwitchFactory` for cheap per-Safe clones.
+Deployed as **ERC-1167 minimal proxies** via `DeadManSwitchFactory` for cheap, deterministic per-Safe clones.
 
 ## Setup
 
