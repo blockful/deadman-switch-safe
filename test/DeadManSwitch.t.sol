@@ -444,6 +444,11 @@ contract DeadManSwitchExtraTests is Test {
         new DeadManSwitchModule(ISafe(address(safe)), address(0), DELAY);
     }
 
+    function test_Constructor_InvalidHeir_Sentinel() public {
+        vm.expectRevert(DeadManSwitchModule.InvalidHeir.selector);
+        new DeadManSwitchModule(ISafe(address(safe)), address(0x1), DELAY);
+    }
+
     function test_Constructor_InvalidDelay() public {
         vm.expectRevert(DeadManSwitchModule.InvalidDelay.selector);
         new DeadManSwitchModule(ISafe(address(safe)), heir, 0);
@@ -470,6 +475,12 @@ contract DeadManSwitchExtraTests is Test {
         // Safe cannot set zero address heir
         (bool success,) = safe.execAsSafe(address(module), abi.encodeWithSignature("setHeir(address)", address(0)));
         assertFalse(success, "should fail for zero address");
+    }
+
+    function test_SetHeir_InvalidHeir_Sentinel() public {
+        // Safe cannot set sentinel address as heir
+        (bool success,) = safe.execAsSafe(address(module), abi.encodeWithSignature("setHeir(address)", address(0x1)));
+        assertFalse(success, "should fail for sentinel address");
     }
 
     function test_SetDelay_OnlyBySafe() public {

@@ -51,6 +51,11 @@ contract DeadManSwitchModule {
     event TakeoverTriggered(address indexed heir, uint256 timestamp);
 
     // ----------------------------
+    // Constants
+    // ----------------------------
+    address internal constant SENTINEL_OWNERS = address(0x1);
+
+    // ----------------------------
     // Immutable / storage
     // ----------------------------
     ISafe public immutable safe;
@@ -69,7 +74,7 @@ contract DeadManSwitchModule {
     constructor(ISafe _safe, address _heir, uint256 _delaySeconds) {
         safe = _safe;
 
-        if (_heir == address(0)) revert InvalidHeir();
+        if (_heir == address(0) || _heir == SENTINEL_OWNERS) revert InvalidHeir();
         if (_delaySeconds == 0) revert InvalidDelay();
 
         heir = _heir;
@@ -105,7 +110,7 @@ contract DeadManSwitchModule {
     }
 
     function setHeir(address newHeir) external onlySafe {
-        if (newHeir == address(0)) revert InvalidHeir();
+        if (newHeir == address(0) || newHeir == SENTINEL_OWNERS) revert InvalidHeir();
         address old = heir;
         heir = newHeir;
         emit HeirChanged(old, newHeir);
