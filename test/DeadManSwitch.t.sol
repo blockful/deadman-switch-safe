@@ -38,12 +38,12 @@ contract MockSafe is ISafe {
     // ----------------------------
     // Setup
     // ----------------------------
-    
+
     /// @notice Initialize Safe with owners and threshold
     function setup(address[] memory _owners, uint256 _threshold) external {
         require(_threshold > 0, "GS202");
         require(_threshold <= _owners.length, "GS201");
-        
+
         // Build linked list: SENTINEL -> owner[0] -> owner[1] -> ... -> SENTINEL
         address currentOwner = SENTINEL_OWNERS;
         for (uint256 i = 0; i < _owners.length; i++) {
@@ -61,18 +61,17 @@ contract MockSafe is ISafe {
     // ----------------------------
     // ISafe Implementation
     // ----------------------------
-    
-    function execTransactionFromModule(
-        address to,
-        uint256 value,
-        bytes calldata data,
-        Operation operation
-    ) external override returns (bool success) {
+
+    function execTransactionFromModule(address to, uint256 value, bytes calldata data, Operation operation)
+        external
+        override
+        returns (bool success)
+    {
         require(enabledModules[msg.sender], "GS104"); // not enabled module
         require(operation == Operation.Call, "Only Call supported in mock");
-        
+
         (success,) = to.call{value: value}(data);
-        
+
         if (success) {
             emit ExecutionFromModuleSuccess(msg.sender);
         } else {
@@ -107,19 +106,19 @@ contract MockSafe is ISafe {
     function swapOwner(address prevOwner, address oldOwner, address newOwner) external {
         // Only callable by self (via module execution)
         require(msg.sender == address(this), "GS031");
-        
+
         // Validate newOwner
         require(newOwner != address(0) && newOwner != SENTINEL_OWNERS, "GS203");
         require(ownerList[newOwner] == address(0), "GS204"); // newOwner not already owner
-        
+
         // Validate oldOwner and prevOwner relationship
         require(ownerList[prevOwner] == oldOwner, "GS205");
-        
+
         // Update linked list
         ownerList[newOwner] = ownerList[oldOwner];
         ownerList[prevOwner] = newOwner;
         ownerList[oldOwner] = address(0);
-        
+
         emit RemovedOwner(oldOwner);
         emit AddedOwner(newOwner);
     }
@@ -131,25 +130,25 @@ contract MockSafe is ISafe {
     function removeOwner(address prevOwner, address owner, uint256 _threshold) external {
         // Only callable by self (via module execution)
         require(msg.sender == address(this), "GS031");
-        
+
         // Threshold check
         require(ownerCount - 1 >= _threshold, "GS201");
-        
+
         // Validate owner and prevOwner relationship
         require(ownerList[prevOwner] == owner, "GS205");
         require(owner != SENTINEL_OWNERS, "GS203");
-        
+
         // Update linked list
         ownerList[prevOwner] = ownerList[owner];
         ownerList[owner] = address(0);
         ownerCount--;
-        
+
         // Update threshold if changed
         if (threshold != _threshold) {
             threshold = _threshold;
             emit ChangedThreshold(_threshold);
         }
-        
+
         emit RemovedOwner(owner);
     }
 
@@ -160,7 +159,7 @@ contract MockSafe is ISafe {
         require(msg.sender == address(this), "GS031");
         require(_threshold > 0, "GS202");
         require(_threshold <= ownerCount, "GS201");
-        
+
         threshold = _threshold;
         emit ChangedThreshold(_threshold);
     }
@@ -195,7 +194,7 @@ contract MockSafe is ISafe {
     // ----------------------------
     // Helper to simulate Safe tx (direct call as Safe)
     // ----------------------------
-    
+
     /// @notice Execute arbitrary call as the Safe (for testing admin functions)
     function execAsSafe(address to, bytes calldata data) external returns (bool, bytes memory) {
         return to.call(data);
@@ -307,10 +306,10 @@ contract DeadManSwitchModuleTest is Test {
         // Guard can notify
         uint256 oldActivity = module.lastActivity();
         vm.warp(block.timestamp + 1 hours);
-        
+
         vm.prank(address(guard));
         module.notifyActivity(bytes32(uint256(123)), true);
-        
+
         assertEq(module.lastActivity(), block.timestamp, "lastActivity should be updated");
         assertTrue(module.lastActivity() > oldActivity, "activity should increase");
     }
@@ -326,13 +325,7 @@ contract DeadManSwitchModuleTest is Test {
         uint256 currentTs = block.timestamp;
         uint256 readyAtTs = module.readyAt();
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                DeadManSwitchModule.NotReady.selector,
-                currentTs,
-                readyAtTs
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(DeadManSwitchModule.NotReady.selector, currentTs, readyAtTs));
         vm.prank(heir);
         module.triggerTakeover();
     }
@@ -383,7 +376,8 @@ contract DeadManSwitchModuleTest is Test {
     function test_GuardFailureDoesNotRevertSafeTx() public {
         // Deploy a guard pointing to a reverting "module"
         RevertingModule revertingModule = new RevertingModule();
-        DeadManSwitchGuard revertingGuard = new DeadManSwitchGuard(IDeadManSwitchModule(address(revertingModule)), address(safe));
+        DeadManSwitchGuard revertingGuard =
+            new DeadManSwitchGuard(IDeadManSwitchModule(address(revertingModule)), address(safe));
 
         // Call checkAfterExecution as the Safe - should not revert even though module.notifyActivity reverts
         vm.prank(address(safe));
@@ -591,13 +585,13 @@ contract DeadManSwitchExtraTests is Test {
 
     function test_Ping_ResetsActivity() public {
         uint256 initialActivity = module.lastActivity();
-        
+
         // Warp forward
         vm.warp(block.timestamp + 10 days);
-        
+
         // Ping via Safe
         safe.execAsSafe(address(module), abi.encodeWithSignature("ping()"));
-        
+
         assertEq(module.lastActivity(), block.timestamp, "lastActivity should be current time");
         assertTrue(module.lastActivity() > initialActivity, "activity should have increased");
     }
@@ -689,19 +683,7 @@ contract DeadManSwitchExtraTests is Test {
 
     function test_Guard_CheckTransaction_DoesNotRevert() public {
         // checkTransaction should do nothing and not revert
-        guard.checkTransaction(
-            address(0),
-            0,
-            "",
-            0,
-            0,
-            0,
-            0,
-            address(0),
-            payable(address(0)),
-            "",
-            address(0)
-        );
+        guard.checkTransaction(address(0), 0, "", 0, 0, 0, 0, address(0), payable(address(0)), "", address(0));
         // If we got here, it passed
     }
 }

@@ -36,12 +36,9 @@ interface IGnosisSafe {
         bytes memory signatures
     ) external payable returns (bool success);
 
-    function execTransactionFromModule(
-        address to,
-        uint256 value,
-        bytes calldata data,
-        Operation operation
-    ) external returns (bool success);
+    function execTransactionFromModule(address to, uint256 value, bytes calldata data, Operation operation)
+        external
+        returns (bool success);
 
     function getOwners() external view returns (address[] memory);
     function getThreshold() external view returns (uint256);
@@ -65,11 +62,9 @@ interface IGnosisSafe {
 }
 
 interface IGnosisSafeProxyFactory {
-    function createProxyWithNonce(
-        address _singleton,
-        bytes memory initializer,
-        uint256 saltNonce
-    ) external returns (address proxy);
+    function createProxyWithNonce(address _singleton, bytes memory initializer, uint256 saltNonce)
+        external
+        returns (address proxy);
 }
 
 /// @title DeadManSwitchForkTest
@@ -121,25 +116,13 @@ contract DeadManSwitchForkTest is Test {
         guard = new DeadManSwitchGuard(IDeadManSwitchModule(address(module)), address(safe));
 
         // Enable module on Safe (requires Safe tx with signatures)
-        _execSafeTx(
-            address(safe),
-            0,
-            abi.encodeWithSignature("enableModule(address)", address(module))
-        );
+        _execSafeTx(address(safe), 0, abi.encodeWithSignature("enableModule(address)", address(module)));
 
         // Set guard on Safe
-        _execSafeTx(
-            address(safe),
-            0,
-            abi.encodeWithSignature("setGuard(address)", address(guard))
-        );
+        _execSafeTx(address(safe), 0, abi.encodeWithSignature("setGuard(address)", address(guard)));
 
         // Set guard in module (via Safe tx)
-        _execSafeTx(
-            address(module),
-            0,
-            abi.encodeWithSignature("setGuard(address)", address(guard))
-        );
+        _execSafeTx(address(module), 0, abi.encodeWithSignature("setGuard(address)", address(guard)));
     }
 
     // ============================================
@@ -159,14 +142,14 @@ contract DeadManSwitchForkTest is Test {
 
         // Step 2: Verify takeover fails before delay
         vm.warp(block.timestamp + DELAY - 1);
-        
+
         vm.prank(heir);
         vm.expectRevert(); // NotReady
         module.triggerTakeover();
 
         // Step 3: Verify takeover succeeds after delay
         vm.warp(block.timestamp + 2); // Now past delay
-        
+
         vm.prank(heir);
         module.triggerTakeover();
 
@@ -213,11 +196,7 @@ contract DeadManSwitchForkTest is Test {
         vm.warp(block.timestamp + 15 days);
 
         // Ping via Safe tx
-        _execSafeTx(
-            address(module),
-            0,
-            abi.encodeWithSignature("ping()")
-        );
+        _execSafeTx(address(module), 0, abi.encodeWithSignature("ping()"));
 
         // Activity should be reset
         assertEq(module.lastActivity(), block.timestamp, "activity should be current time");
@@ -230,11 +209,7 @@ contract DeadManSwitchForkTest is Test {
 
     function test_Fork_PauseBlocksTakeover() public {
         // Pause via Safe tx
-        _execSafeTx(
-            address(module),
-            0,
-            abi.encodeWithSignature("setPaused(bool)", true)
-        );
+        _execSafeTx(address(module), 0, abi.encodeWithSignature("setPaused(bool)", true));
         assertTrue(module.paused(), "should be paused");
 
         // Warp past delay
@@ -254,11 +229,7 @@ contract DeadManSwitchForkTest is Test {
         address newHeir = address(0x9999);
 
         // Change heir via Safe tx
-        _execSafeTx(
-            address(module),
-            0,
-            abi.encodeWithSignature("setHeir(address)", newHeir)
-        );
+        _execSafeTx(address(module), 0, abi.encodeWithSignature("setHeir(address)", newHeir));
         assertEq(module.heir(), newHeir, "heir should be changed");
 
         // Warp past delay

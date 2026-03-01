@@ -63,9 +63,8 @@ contract DeadManSwitchGuard is Guard {
 
         // Never revert: a reverting guard reverts the whole Safe tx.
         // Use low-level call to swallow failures.
-        (bool ok, ) = address(module).call(
-            abi.encodeWithSelector(IDeadManSwitchModule.notifyActivity.selector, txHash, success)
-        );
+        (bool ok,) =
+            address(module).call(abi.encodeWithSelector(IDeadManSwitchModule.notifyActivity.selector, txHash, success));
         ok; // ignore
     }
 }

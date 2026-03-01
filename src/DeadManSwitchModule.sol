@@ -9,12 +9,9 @@ interface ISafe {
     }
 
     // Module execution entrypoints (exist on Safe)
-    function execTransactionFromModule(
-        address to,
-        uint256 value,
-        bytes calldata data,
-        Operation operation
-    ) external returns (bool success);
+    function execTransactionFromModule(address to, uint256 value, bytes calldata data, Operation operation)
+        external
+        returns (bool success);
 
     // Owner list helper (Safe inherits OwnerManager)
     function getOwners() external view returns (address[] memory);
@@ -212,27 +209,19 @@ contract DeadManSwitchModule {
             // is always SENTINEL.
             for (uint256 i = 0; i < heirIndex; i++) {
                 _safeCall(
-                    abi.encodeWithSignature(
-                        "removeOwner(address,address,uint256)", SENTINEL_OWNERS, owners[i], 1
-                    )
+                    abi.encodeWithSignature("removeOwner(address,address,uint256)", SENTINEL_OWNERS, owners[i], 1)
                 );
             }
             // Phase 2: Remove owners AFTER heir in the linked list.
             // Heir is now the head, so prevOwner is always heir.
             for (uint256 i = heirIndex + 1; i < owners.length; i++) {
-                _safeCall(
-                    abi.encodeWithSignature("removeOwner(address,address,uint256)", heir, owners[i], 1)
-                );
+                _safeCall(abi.encodeWithSignature("removeOwner(address,address,uint256)", heir, owners[i], 1));
             }
         } else {
             // Heir is NOT an owner — swap first owner with heir, then remove the rest.
-            _safeCall(
-                abi.encodeWithSignature("swapOwner(address,address,address)", SENTINEL_OWNERS, owners[0], heir)
-            );
+            _safeCall(abi.encodeWithSignature("swapOwner(address,address,address)", SENTINEL_OWNERS, owners[0], heir));
             for (uint256 i = 1; i < owners.length; i++) {
-                _safeCall(
-                    abi.encodeWithSignature("removeOwner(address,address,uint256)", heir, owners[i], 1)
-                );
+                _safeCall(abi.encodeWithSignature("removeOwner(address,address,uint256)", heir, owners[i], 1));
             }
         }
 
