@@ -12,6 +12,8 @@ jobs:
   check:
     name: Foundry project
     runs-on: ubuntu-latest
+    env:
+      RPC_URL: ${{ secrets.RPC_URL }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,7 +34,5 @@ jobs:
         run: forge test -vvv --no-match-path "test/*.fork.t.sol"
 
       - name: Run fork tests
-        if: ${{ secrets.RPC_URL != '' }}
-        env:
-          RPC_URL: ${{ secrets.RPC_URL }}
+        if: env.RPC_URL != ''
         run: forge test -vvv --match-path "test/*.fork.t.sol"
