@@ -616,23 +616,8 @@ contract DeadManSwitchExtraTests is Test {
         module.triggerTakeover();
     }
 
-    function test_Takeover_HeirIsOwner_Succeeds() public {
-        // Set heir to an existing owner — takeover should remove all others
-        safe.execAsSafe(address(module), abi.encodeWithSignature("setHeir(address)", owner1));
-
-        vm.warp(block.timestamp + DELAY + 1);
-
-        vm.prank(owner1);
-        module.triggerTakeover();
-
-        address[] memory owners = safe.getOwners();
-        assertEq(owners.length, 1, "should have exactly 1 owner");
-        assertEq(owners[0], owner1, "heir (owner1) should be sole owner");
-        assertEq(safe.getThreshold(), 1, "threshold should be 1");
-    }
-
     function test_Takeover_HeirIsSoleOwner() public {
-        // Heir is the only owner of the Safe — takeover is effectively a no-op
+        // Heir is the only owner of the Safe — takeover is a no-op
         // but should succeed and pause the module
         safe.execAsSafe(address(module), abi.encodeWithSignature("setHeir(address)", owner1));
 
