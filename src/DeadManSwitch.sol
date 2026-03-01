@@ -8,26 +8,24 @@ interface ISafe {
         DelegateCall
     }
 
-    // Module execution entrypoints (exist on Safe)
     function execTransactionFromModule(address to, uint256 value, bytes calldata data, Operation operation)
         external
         returns (bool success);
 
-    // Owner list helper (Safe inherits OwnerManager)
     function getOwners() external view returns (address[] memory);
 
     function getThreshold() external view returns (uint256);
 }
 
-/// @title DeadManSwitchModule
-/// @notice Safe module that can transfer Safe control to an heir after inactivity.
-/// @dev Must be enabled as a module on the Safe. Best used together with DeadManSwitchGuard.
-contract DeadManSwitchModule {
+/// @title DeadManSwitch
+/// @notice Safe module + guard that transfers Safe control to an heir after inactivity.
+/// @dev Must be enabled as both a module and a guard on the Safe.
+///      Deploy via DeadManSwitchFactory for cheap ERC-1167 clones.
+contract DeadManSwitch {
     // ----------------------------
     // Errors
     // ----------------------------
     error NotSafe();
-    error NotGuard();
     error InvalidHeir();
     error InvalidDelay();
     error NotReady(uint256 nowTs, uint256 readyAt);
@@ -43,7 +41,6 @@ contract DeadManSwitchModule {
     event HeirChanged(address indexed oldHeir, address indexed newHeir);
     event DelayChanged(uint256 oldDelay, uint256 newDelay);
     event PausedChanged(bool paused);
-    event GuardChanged(address indexed oldGuard, address indexed newGuard);
     event TakeoverTriggered(address indexed heir, uint256 timestamp);
 
     // ----------------------------
@@ -52,48 +49,47 @@ contract DeadManSwitchModule {
     address internal constant SENTINEL_OWNERS = address(0x1);
     uint256 public constant MAX_DELAY = 365 days;
 
-    // ----------------------------
-    // Immutable / storage
-    // ----------------------------
-    ISafe public immutable safe;
+    /// @dev Guard interface ID: checkTransaction.selector ^ checkAfterExecution.selector
+    bytes4 private constant GUARD_INTERFACE_ID = 0xe6d7a83a;
+    bytes4 private constant ERC165_INTERFACE_ID = 0x01ffc9a7;
 
+    // ----------------------------
+    // Storage
+    // ----------------------------
+    ISafe public safe;
     address public heir;
     uint256 public delay; // seconds
-
-    /// @notice last time we observed Safe activity (via guard) or manual ping
     uint256 public lastActivity;
-
-    /// @notice Safe guard allowed to call notifyActivity.
-    address public guard;
-
     bool public paused;
+    bool private _initialized;
 
-    /// @param _safe The Gnosis Safe this module will control.
+    // ----------------------------
+    // Initializer (replaces constructor for clone compatibility)
+    // ----------------------------
+
+    /// @notice Initialize the dead man's switch for a specific Safe.
+    /// @param _safe The Gnosis Safe this instance will control.
     /// @param _heir Address that can trigger takeover after inactivity.
     /// @param _delaySeconds Seconds of inactivity before takeover is allowed (1 to MAX_DELAY).
-    constructor(ISafe _safe, address _heir, uint256 _delaySeconds) {
-        safe = _safe;
+    function initialize(ISafe _safe, address _heir, uint256 _delaySeconds) external {
+        if (_initialized) revert AlreadyInitialized();
+        _initialized = true;
 
         if (_heir == address(0) || _heir == SENTINEL_OWNERS) revert InvalidHeir();
         if (_delaySeconds == 0 || _delaySeconds > MAX_DELAY) revert InvalidDelay();
 
+        safe = _safe;
         heir = _heir;
         delay = _delaySeconds;
-
-        // Initialize activity at deployment time
         lastActivity = block.timestamp;
     }
 
     // ----------------------------
     // Modifiers
     // ----------------------------
+
     modifier onlySafe() {
         if (msg.sender != address(safe)) revert NotSafe();
-        _;
-    }
-
-    modifier onlyGuard() {
-        if (msg.sender != guard) revert NotGuard();
         _;
     }
 
@@ -101,17 +97,8 @@ contract DeadManSwitchModule {
     // Admin (only via Safe tx)
     // ----------------------------
 
-    /// @notice Set/replace the guard that is allowed to report activity.
-    /// @dev Must be called by the Safe (i.e., via execTransaction).
-    /// @param newGuard Address of the new guard. Use address(0) to disable guard-based activity tracking.
-    function setGuard(address newGuard) external onlySafe {
-        address old = guard;
-        guard = newGuard;
-        emit GuardChanged(old, newGuard);
-    }
-
     /// @notice Change the heir address.
-    /// @param newHeir New heir. Cannot be address(0) or SENTINEL. Can be an existing owner.
+    /// @param newHeir New heir. Cannot be address(0) or SENTINEL.
     function setHeir(address newHeir) external onlySafe {
         if (newHeir == address(0) || newHeir == SENTINEL_OWNERS) revert InvalidHeir();
         address old = heir;
@@ -136,24 +123,47 @@ contract DeadManSwitchModule {
     }
 
     /// @notice Manual heartbeat that resets lastActivity.
-    /// @dev Owners can call this via Safe tx if needed (e.g., if guard is off, or for extra certainty).
+    /// @dev Owners can call this via Safe tx if needed.
     function ping() external onlySafe {
         lastActivity = block.timestamp;
         emit ActivityRecorded(block.timestamp, bytes32(0), true);
     }
 
     // ----------------------------
-    // Activity hook (called by guard)
+    // Guard interface
     // ----------------------------
 
-    /// @notice Records activity after each Safe execTransaction (if wired via guard).
-    /// @dev Must NOT revert; guards should never brick the Safe. Keep it simple.
-    /// @param txHash The hash of the Safe transaction that was executed.
-    /// @param success Whether the Safe transaction succeeded.
-    function notifyActivity(bytes32 txHash, bool success) external onlyGuard {
-        // If paused, we still record activity by default (safer operationally).
+    /// @notice Pre-transaction hook. Intentionally empty — no policy enforcement.
+    function checkTransaction(
+        address,
+        uint256,
+        bytes calldata,
+        uint8,
+        uint256,
+        uint256,
+        uint256,
+        address,
+        address payable,
+        bytes calldata,
+        address
+    ) external {}
+
+    /// @notice Post-transaction hook. Records activity after each Safe execTransaction.
+    /// @dev Must NOT revert — a reverting guard bricks the Safe.
+    ///      Silently ignores non-Safe callers to prevent third parties from resetting the timer.
+    function checkAfterExecution(bytes32 txHash, bool success) external {
+        if (msg.sender != address(safe)) return;
         lastActivity = block.timestamp;
         emit ActivityRecorded(block.timestamp, txHash, success);
+    }
+
+    // ----------------------------
+    // ERC-165
+    // ----------------------------
+
+    /// @notice Returns true for Guard interface ID and ERC-165 interface ID.
+    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
+        return interfaceId == GUARD_INTERFACE_ID || interfaceId == ERC165_INTERFACE_ID;
     }
 
     // ----------------------------
@@ -161,7 +171,6 @@ contract DeadManSwitchModule {
     // ----------------------------
 
     /// @notice Timestamp at which takeover becomes possible.
-    /// @return The earliest block.timestamp at which triggerTakeover() will succeed.
     function readyAt() public view returns (uint256) {
         return lastActivity + delay;
     }
@@ -178,7 +187,7 @@ contract DeadManSwitchModule {
     // ----------------------------
 
     /// @notice Transfers Safe control to the heir if inactivity >= delay.
-    /// @dev This uses module privileges to make the Safe call its own owner-management functions.
+    /// @dev Uses module privileges to call Safe's owner-management functions.
     function triggerTakeover() external {
         if (paused) revert Paused();
         if (msg.sender != heir) revert InvalidHeir();
@@ -186,7 +195,6 @@ contract DeadManSwitchModule {
         uint256 ra = readyAt();
         if (block.timestamp < ra) revert NotReady(block.timestamp, ra);
 
-        // Step 0: read current owners
         address[] memory owners = safe.getOwners();
         if (owners.length < 1) revert NoOwners();
 
@@ -203,7 +211,6 @@ contract DeadManSwitchModule {
 
         if (heirIsOwner) {
             // Heir is already an owner — remove everyone else, keep heir.
-            //
             // Phase 1: Remove owners BEFORE heir in the linked list.
             // Each removal promotes the next owner to head, so prevOwner
             // is always SENTINEL.

@@ -2,8 +2,8 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {DeadManSwitchModule, ISafe} from "../src/DeadManSwitchModule.sol";
-import {DeadManSwitchGuard, IDeadManSwitchModule} from "../src/DeadManSwitchGuard.sol";
+import {DeadManSwitch, ISafe} from "../src/DeadManSwitch.sol";
+import {DeadManSwitchFactory} from "../src/DeadManSwitchFactory.sol";
 
 /// @title Minimal Safe interfaces for fork testing
 interface IGnosisSafe {
@@ -44,7 +44,6 @@ interface IGnosisSafe {
     function getThreshold() external view returns (uint256);
     function isOwner(address owner) external view returns (bool);
     function isModuleEnabled(address module) external view returns (bool);
-    function getGuard() external view returns (address);
     function nonce() external view returns (uint256);
     function domainSeparator() external view returns (bytes32);
     function getTransactionHash(
@@ -75,8 +74,8 @@ contract DeadManSwitchForkTest is Test {
     address constant SAFE_PROXY_FACTORY = 0xa6B71E26C5e0845f74c812102Ca7114b6a896AB2;
 
     IGnosisSafe public safe;
-    DeadManSwitchModule public module;
-    DeadManSwitchGuard public guard;
+    DeadManSwitch public dms;
+    DeadManSwitchFactory public factory;
 
     // Test accounts (we use vm.addr to generate from private keys for signing)
     uint256 constant OWNER1_PK = 0x1;
@@ -109,20 +108,16 @@ contract DeadManSwitchForkTest is Test {
         // Deploy a fresh Safe
         safe = _deploySafe();
 
-        // Deploy module
-        module = new DeadManSwitchModule(ISafe(address(safe)), heir, DELAY);
+        // Deploy via factory
+        DeadManSwitch implementation = new DeadManSwitch();
+        factory = new DeadManSwitchFactory(address(implementation));
+        dms = DeadManSwitch(factory.create(ISafe(address(safe)), heir, DELAY));
 
-        // Deploy guard
-        guard = new DeadManSwitchGuard(IDeadManSwitchModule(address(module)), address(safe));
+        // Enable as module on Safe (requires Safe tx with signatures)
+        _execSafeTx(address(safe), 0, abi.encodeWithSignature("enableModule(address)", address(dms)));
 
-        // Enable module on Safe (requires Safe tx with signatures)
-        _execSafeTx(address(safe), 0, abi.encodeWithSignature("enableModule(address)", address(module)));
-
-        // Set guard on Safe
-        _execSafeTx(address(safe), 0, abi.encodeWithSignature("setGuard(address)", address(guard)));
-
-        // Set guard in module (via Safe tx)
-        _execSafeTx(address(module), 0, abi.encodeWithSignature("setGuard(address)", address(guard)));
+        // Set as guard on Safe (this calls supportsInterface on the real Safe)
+        _execSafeTx(address(safe), 0, abi.encodeWithSignature("setGuard(address)", address(dms)));
     }
 
     // ============================================
@@ -133,25 +128,20 @@ contract DeadManSwitchForkTest is Test {
         // Verify initial state
         assertEq(safe.getOwners().length, 3, "should have 3 owners");
         assertEq(safe.getThreshold(), 2, "threshold should be 2");
-        assertTrue(safe.isModuleEnabled(address(module)), "module should be enabled");
-        // Note: getGuard() reads from a specific storage slot, verify via module instead
-        assertEq(module.guard(), address(guard), "module guard should be set");
-
-        // Note: Guard might not be properly wired in fork test due to Safe storage slot handling
-        // We verify the module works correctly regardless
+        assertTrue(safe.isModuleEnabled(address(dms)), "module should be enabled");
 
         // Step 2: Verify takeover fails before delay
         vm.warp(block.timestamp + DELAY - 1);
 
         vm.prank(heir);
         vm.expectRevert(); // NotReady
-        module.triggerTakeover();
+        dms.triggerTakeover();
 
         // Step 3: Verify takeover succeeds after delay
         vm.warp(block.timestamp + 2); // Now past delay
 
         vm.prank(heir);
-        module.triggerTakeover();
+        dms.triggerTakeover();
 
         // Step 4: Verify heir is sole owner
         address[] memory owners = safe.getOwners();
@@ -169,20 +159,20 @@ contract DeadManSwitchForkTest is Test {
     // ============================================
 
     function test_Fork_ActivityResetOnSafeTx() public {
-        uint256 initialActivity = module.lastActivity();
+        uint256 initialActivity = dms.lastActivity();
 
         // Warp forward
         vm.warp(block.timestamp + 10 days);
 
-        // Execute a Safe tx
+        // Execute a Safe tx — guard (dms) checkAfterExecution resets activity
         _execSafeTx(owner1, 0, "");
 
         // Activity should be reset to current time
-        assertEq(module.lastActivity(), block.timestamp, "activity should be current time");
-        assertTrue(module.lastActivity() > initialActivity, "activity should have increased");
+        assertEq(dms.lastActivity(), block.timestamp, "activity should be current time");
+        assertTrue(dms.lastActivity() > initialActivity, "activity should have increased");
 
         // Takeover should now require full delay from this point
-        assertEq(module.readyAt(), block.timestamp + DELAY, "readyAt should be reset");
+        assertEq(dms.readyAt(), block.timestamp + DELAY, "readyAt should be reset");
     }
 
     // ============================================
@@ -190,17 +180,17 @@ contract DeadManSwitchForkTest is Test {
     // ============================================
 
     function test_Fork_PingResetsActivity() public {
-        uint256 initialActivity = module.lastActivity();
+        uint256 initialActivity = dms.lastActivity();
 
         // Warp forward (but not past delay)
         vm.warp(block.timestamp + 15 days);
 
         // Ping via Safe tx
-        _execSafeTx(address(module), 0, abi.encodeWithSignature("ping()"));
+        _execSafeTx(address(dms), 0, abi.encodeWithSignature("ping()"));
 
         // Activity should be reset
-        assertEq(module.lastActivity(), block.timestamp, "activity should be current time");
-        assertTrue(module.lastActivity() > initialActivity, "activity should have increased");
+        assertEq(dms.lastActivity(), block.timestamp, "activity should be current time");
+        assertTrue(dms.lastActivity() > initialActivity, "activity should have increased");
     }
 
     // ============================================
@@ -209,16 +199,16 @@ contract DeadManSwitchForkTest is Test {
 
     function test_Fork_PauseBlocksTakeover() public {
         // Pause via Safe tx
-        _execSafeTx(address(module), 0, abi.encodeWithSignature("setPaused(bool)", true));
-        assertTrue(module.paused(), "should be paused");
+        _execSafeTx(address(dms), 0, abi.encodeWithSignature("setPaused(bool)", true));
+        assertTrue(dms.paused(), "should be paused");
 
         // Warp past delay
         vm.warp(block.timestamp + DELAY + 1);
 
         // Takeover should fail
         vm.prank(heir);
-        vm.expectRevert(DeadManSwitchModule.Paused.selector);
-        module.triggerTakeover();
+        vm.expectRevert(DeadManSwitch.Paused.selector);
+        dms.triggerTakeover();
     }
 
     // ============================================
@@ -229,20 +219,20 @@ contract DeadManSwitchForkTest is Test {
         address newHeir = address(0x9999);
 
         // Change heir via Safe tx
-        _execSafeTx(address(module), 0, abi.encodeWithSignature("setHeir(address)", newHeir));
-        assertEq(module.heir(), newHeir, "heir should be changed");
+        _execSafeTx(address(dms), 0, abi.encodeWithSignature("setHeir(address)", newHeir));
+        assertEq(dms.heir(), newHeir, "heir should be changed");
 
         // Warp past delay
         vm.warp(block.timestamp + DELAY + 1);
 
         // Old heir cannot trigger takeover
         vm.prank(heir);
-        vm.expectRevert(DeadManSwitchModule.InvalidHeir.selector);
-        module.triggerTakeover();
+        vm.expectRevert(DeadManSwitch.InvalidHeir.selector);
+        dms.triggerTakeover();
 
         // New heir can trigger takeover
         vm.prank(newHeir);
-        module.triggerTakeover();
+        dms.triggerTakeover();
 
         // Verify new heir is sole owner
         address[] memory owners = safe.getOwners();
@@ -332,11 +322,9 @@ contract DeadManSwitchForkTest is Test {
     // ============================================
 
     function _buildSignatures(bytes32 txHash, uint256 pk1, uint256 pk2) internal pure returns (bytes memory) {
-        // Each signature is 65 bytes: r (32) + s (32) + v (1)
         (uint8 v1, bytes32 r1, bytes32 s1) = vm.sign(pk1, txHash);
         (uint8 v2, bytes32 r2, bytes32 s2) = vm.sign(pk2, txHash);
 
-        // Concatenate signatures (Safe expects them packed)
         return abi.encodePacked(r1, s1, v1, r2, s2, v2);
     }
 }
