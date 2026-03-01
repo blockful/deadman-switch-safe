@@ -97,8 +97,7 @@ contract DeadManSwitchForkTest is Test {
     uint256 public constant DELAY = 30 days;
 
     function setUp() public {
-        // Fork from local reth
-        vm.createSelectFork("http://localhost:8545");
+        vm.createSelectFork(vm.envString("RPC_URL"));
 
         // Generate addresses from private keys
         owner1 = vm.addr(OWNER1_PK);

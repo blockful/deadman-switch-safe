@@ -71,6 +71,9 @@ contract DeadManSwitchModule {
 
     bool public paused;
 
+    /// @param _safe The Gnosis Safe this module will control.
+    /// @param _heir Address that can trigger takeover after inactivity.
+    /// @param _delaySeconds Seconds of inactivity before takeover is allowed (1 to MAX_DELAY).
     constructor(ISafe _safe, address _heir, uint256 _delaySeconds) {
         safe = _safe;
 
@@ -103,12 +106,15 @@ contract DeadManSwitchModule {
 
     /// @notice Set/replace the guard that is allowed to report activity.
     /// @dev Must be called by the Safe (i.e., via execTransaction).
+    /// @param newGuard Address of the new guard. Use address(0) to disable guard-based activity tracking.
     function setGuard(address newGuard) external onlySafe {
         address old = guard;
         guard = newGuard;
         emit GuardChanged(old, newGuard);
     }
 
+    /// @notice Change the heir address.
+    /// @param newHeir New heir. Cannot be address(0) or SENTINEL. Can be an existing owner.
     function setHeir(address newHeir) external onlySafe {
         if (newHeir == address(0) || newHeir == SENTINEL_OWNERS) revert InvalidHeir();
         address old = heir;
@@ -116,6 +122,8 @@ contract DeadManSwitchModule {
         emit HeirChanged(old, newHeir);
     }
 
+    /// @notice Change the inactivity delay.
+    /// @param newDelaySeconds New delay in seconds (1 to MAX_DELAY).
     function setDelay(uint256 newDelaySeconds) external onlySafe {
         if (newDelaySeconds == 0 || newDelaySeconds > MAX_DELAY) revert InvalidDelay();
         uint256 old = delay;
@@ -123,6 +131,8 @@ contract DeadManSwitchModule {
         emit DelayChanged(old, newDelaySeconds);
     }
 
+    /// @notice Pause or unpause the module. When paused, takeover is blocked.
+    /// @param newPaused True to pause, false to unpause.
     function setPaused(bool newPaused) external onlySafe {
         paused = newPaused;
         emit PausedChanged(newPaused);
@@ -141,6 +151,8 @@ contract DeadManSwitchModule {
 
     /// @notice Records activity after each Safe execTransaction (if wired via guard).
     /// @dev Must NOT revert; guards should never brick the Safe. Keep it simple.
+    /// @param txHash The hash of the Safe transaction that was executed.
+    /// @param success Whether the Safe transaction succeeded.
     function notifyActivity(bytes32 txHash, bool success) external onlyGuard {
         // If paused, we still record activity by default (safer operationally).
         lastActivity = block.timestamp;
@@ -151,10 +163,13 @@ contract DeadManSwitchModule {
     // Views
     // ----------------------------
 
+    /// @notice Timestamp at which takeover becomes possible.
+    /// @return The earliest block.timestamp at which triggerTakeover() will succeed.
     function readyAt() public view returns (uint256) {
         return lastActivity + delay;
     }
 
+    /// @notice Seconds remaining until takeover is possible. Returns 0 if already ready.
     function timeRemaining() external view returns (uint256) {
         uint256 ra = readyAt();
         if (block.timestamp >= ra) return 0;

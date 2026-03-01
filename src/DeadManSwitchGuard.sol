@@ -30,6 +30,8 @@ contract DeadManSwitchGuard is Guard {
     IDeadManSwitchModule public immutable module;
     address public immutable safe;
 
+    /// @param _module The DeadManSwitchModule to notify on activity.
+    /// @param _safe The Safe address. Only calls from this address trigger activity recording.
     constructor(IDeadManSwitchModule _module, address _safe) {
         module = _module;
         safe = _safe;
@@ -52,6 +54,8 @@ contract DeadManSwitchGuard is Guard {
         // You COULD add policy logic here, but that’s separate from the dead-man switch feature.
     }
 
+    /// @notice Called by the Safe after execTransaction. Records activity in the module.
+    /// @dev Silently ignores non-Safe callers and swallows module call failures.
     function checkAfterExecution(bytes32 txHash, bool success) external override {
         // Only the Safe should call guard hooks. Silently ignore other callers
         // to prevent third parties from resetting the inactivity timer.
