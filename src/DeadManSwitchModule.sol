@@ -38,7 +38,6 @@ contract DeadManSwitchModule {
     error AlreadyInitialized();
     error Paused();
     error NoOwners();
-    error HeirIsAlreadyOwner();
 
     // ----------------------------
     // Events
@@ -175,53 +174,57 @@ contract DeadManSwitchModule {
         uint256 ra = readyAt();
         if (block.timestamp < ra) revert NotReady(block.timestamp, ra);
 
-        // Step 0: read current owners and verify heir is not already one
+        // Step 0: read current owners
         address[] memory owners = safe.getOwners();
         if (owners.length < 1) revert NoOwners();
+
+        // Check if heir is already in the owner list
+        bool heirIsOwner = false;
+        uint256 heirIndex = 0;
         for (uint256 i = 0; i < owners.length; i++) {
-            if (owners[i] == heir) revert HeirIsAlreadyOwner();
+            if (owners[i] == heir) {
+                heirIsOwner = true;
+                heirIndex = i;
+                break;
+            }
         }
 
-        // Step 1: swap first owner -> heir (heir becomes head)
-        // Safe.swapOwner(prevOwner, oldOwner, newOwner)
-        // We need prevOwner of owners[0]. In a Safe linked list, the "prev" of the head is SENTINEL (0x1).
-        // OwnerManager uses SENTINEL_OWNERS = address(0x1).
-        // So prevOwner = 0x000...001.
-        _safeCall(
-            abi.encodeWithSignature(
-                "swapOwner(address,address,address)",
-                address(0x0000000000000000000000000000000000000001),
-                owners[0],
-                heir
-            )
-        );
-
-        // Step 2: remove remaining owners one-by-one.
-        // After swap, the list begins: SENTINEL -> heir -> (old second owner) -> ...
-        // So prevOwner is always heir for removing the next one.
-        //
-        // removeOwner(prevOwner, owner, _threshold)
-        // We also set threshold to 1 during removals to keep invariants easy.
-        for (uint256 i = 1; i < owners.length; i++) {
+        if (heirIsOwner) {
+            // Heir is already an owner — remove everyone else, keep heir.
+            //
+            // Phase 1: Remove owners BEFORE heir in the linked list.
+            // Each removal promotes the next owner to head, so prevOwner
+            // is always SENTINEL.
+            for (uint256 i = 0; i < heirIndex; i++) {
+                _safeCall(
+                    abi.encodeWithSignature(
+                        "removeOwner(address,address,uint256)", SENTINEL_OWNERS, owners[i], 1
+                    )
+                );
+            }
+            // Phase 2: Remove owners AFTER heir in the linked list.
+            // Heir is now the head, so prevOwner is always heir.
+            for (uint256 i = heirIndex + 1; i < owners.length; i++) {
+                _safeCall(
+                    abi.encodeWithSignature("removeOwner(address,address,uint256)", heir, owners[i], 1)
+                );
+            }
+        } else {
+            // Heir is NOT an owner — swap first owner with heir, then remove the rest.
             _safeCall(
-                abi.encodeWithSignature(
-                    "removeOwner(address,address,uint256)",
-                    heir,
-                    owners[i],
-                    1
-                )
+                abi.encodeWithSignature("swapOwner(address,address,address)", SENTINEL_OWNERS, owners[0], heir)
             );
+            for (uint256 i = 1; i < owners.length; i++) {
+                _safeCall(
+                    abi.encodeWithSignature("removeOwner(address,address,uint256)", heir, owners[i], 1)
+                );
+            }
         }
 
-        // Step 3: ensure threshold is 1 (in case it wasn’t set by removals due to edge paths)
-        _safeCall(
-            abi.encodeWithSignature(
-                "changeThreshold(uint256)",
-                1
-            )
-        );
+        // Ensure threshold is 1
+        _safeCall(abi.encodeWithSignature("changeThreshold(uint256)", 1));
 
-        // Step 4: permanently pause to prevent reuse
+        // Permanently pause to prevent reuse
         paused = true;
 
         emit TakeoverTriggered(heir, block.timestamp);
