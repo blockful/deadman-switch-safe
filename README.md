@@ -40,8 +40,8 @@ Deployed as **ERC-1167 minimal proxies** via `DeadManSwitchFactory` for cheap, d
 After deploying a clone through the factory, execute **2 Safe transactions**:
 
 ```
-safe.enableModule(dms)
-safe.setGuard(dms)
+safe.enableModule(deadManSwitch)
+safe.setGuard(deadManSwitch)
 ```
 
 ## Build & Test
