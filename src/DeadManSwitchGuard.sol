@@ -28,9 +28,11 @@ interface Guard {
 /// @dev Must be set as Safe guard (via Safe tx). Should never revert because it can brick the Safe.
 contract DeadManSwitchGuard is Guard {
     IDeadManSwitchModule public immutable module;
+    address public immutable safe;
 
-    constructor(IDeadManSwitchModule _module) {
+    constructor(IDeadManSwitchModule _module, address _safe) {
         module = _module;
+        safe = _safe;
     }
 
     function checkTransaction(
@@ -51,6 +53,10 @@ contract DeadManSwitchGuard is Guard {
     }
 
     function checkAfterExecution(bytes32 txHash, bool success) external override {
+        // Only the Safe should call guard hooks. Silently ignore other callers
+        // to prevent third parties from resetting the inactivity timer.
+        if (msg.sender != safe) return;
+
         // Never revert: a reverting guard reverts the whole Safe tx.
         // Use low-level call to swallow failures.
         (bool ok, ) = address(module).call(
